@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 2
+names: ['with_helmet', 'without_helmet']
+
+roboflow:
+  workspace: tahir-dsofficial-gmail-com
+  project: helmet-no-helmet-detection-hjdvx-drnea
+  version: dataset
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/tahir-dsofficial-gmail-com/helmet-no-helmet-detection-hjdvx-drnea/dataset/dataset
