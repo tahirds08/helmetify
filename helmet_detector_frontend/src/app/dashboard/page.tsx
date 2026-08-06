@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import * as React from 'react';
+import React from 'react';
 
 import { config } from '@/config';
 import { DashboardContent } from '@/components/dashboard/dashboard-content';
