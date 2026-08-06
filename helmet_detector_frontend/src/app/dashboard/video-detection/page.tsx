@@ -22,13 +22,23 @@ import {
   VideoCamera,
 } from '@phosphor-icons/react';
 
+interface VideoPrediction {
+  result: string;
+  confidence: number;
+  annotated_video: string;
+  [key: string]: unknown;
+}
+
 export default function Page(): React.JSX.Element {
   const [video, setVideo] = React.useState<string | null>(null);
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [processing, setProcessing] = React.useState(false);
-  const [prediction, setPrediction] = React.useState<any>(null);
+  const [prediction, setPrediction] =
+    React.useState<VideoPrediction | null>(null);
 
-  function handleVideo(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleVideo(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = event.target.files?.[0];
 
     if (!file) return;
@@ -46,8 +56,8 @@ export default function Page(): React.JSX.Element {
 
       const response = await uploadVideo(selectedFile);
 
-      setPrediction(response.prediction);
-    } catch (error) {
+      setPrediction(response.prediction as VideoPrediction);
+    } catch (error: unknown) {
       console.error(error);
       alert('Video detection failed.');
     } finally {

@@ -13,14 +13,22 @@ export interface UserContextValue {
   checkSession?: () => Promise<void>;
 }
 
-export const UserContext = React.createContext<UserContextValue | undefined>(undefined);
+export const UserContext = React.createContext<UserContextValue | undefined>(
+  undefined
+);
 
 export interface UserProviderProps {
   children: React.ReactNode;
 }
 
-export function UserProvider({ children }: UserProviderProps): React.JSX.Element {
-  const [state, setState] = React.useState<{ user: User | null; error: string | null; isLoading: boolean }>({
+export function UserProvider({
+  children,
+}: UserProviderProps): React.JSX.Element {
+  const [state, setState] = React.useState<{
+    user: User | null;
+    error: string | null;
+    isLoading: boolean;
+  }>({
     user: null,
     error: null,
     isLoading: true,
@@ -30,28 +38,61 @@ export function UserProvider({ children }: UserProviderProps): React.JSX.Element
     try {
       const { data, error } = await authClient.getUser();
 
-      if (error) {
-        logger.error(error);
-        setState((prev) => ({ ...prev, user: null, error: 'Something went wrong', isLoading: false }));
+      // No logged-in user → this is NORMAL, not an error.
+      if (error === 'UNAUTHORIZED') {
+        setState({
+          user: null,
+          error: null,
+          isLoading: false,
+        });
         return;
       }
 
-      setState((prev) => ({ ...prev, user: data ?? null, error: null, isLoading: false }));
-    } catch (error) {
-      logger.error(error);
-      setState((prev) => ({ ...prev, user: null, error: 'Something went wrong', isLoading: false }));
+      // Real server/network error
+      if (error) {
+        logger.error(error);
+
+        setState({
+          user: null,
+          error,
+          isLoading: false,
+        });
+
+        return;
+      }
+
+      setState({
+        user: data ?? null,
+        error: null,
+        isLoading: false,
+      });
+    } catch (err) {
+      logger.error(err);
+
+      setState({
+        user: null,
+        error: 'Unable to connect to the server.',
+        isLoading: false,
+      });
     }
   }, []);
 
   React.useEffect(() => {
-    checkSession().catch((error) => {
-      logger.error(error);
-      // noop
+    checkSession().catch((err) => {
+      logger.error(err);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Expected
-  }, []);
+  }, [checkSession]);
 
-  return <UserContext.Provider value={{ ...state, checkSession }}>{children}</UserContext.Provider>;
+  return (
+    <UserContext.Provider
+      value={{
+        ...state,
+        checkSession,
+      }}
+    >
+      {children}
+    </UserContext.Provider>
+  );
 }
 
 export const UserConsumer = UserContext.Consumer;

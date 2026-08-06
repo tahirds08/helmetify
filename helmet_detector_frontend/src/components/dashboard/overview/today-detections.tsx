@@ -43,7 +43,7 @@ export function TodayDetections({
           >
             <Stack spacing={1}>
               <Typography color="text.secondary" variant="overline">
-                Today's Detections
+                Today&apos;s detections
               </Typography>
 
               <Typography variant="h4">{value}</Typography>
