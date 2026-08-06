@@ -23,7 +23,11 @@ import {
 
 export default function Page(): React.JSX.Element {
   const [running, setRunning] = React.useState(false);
-  const [prediction, setPrediction] = React.useState<any>(null);
+  const [prediction, setPrediction] = React.useState<{
+  result: string;
+  confidence: number;
+  annotated_image?: string;
+} | null>(null);
   const [framesProcessed, setFramesProcessed] = React.useState(0);
   const [helmetCount, setHelmetCount] = React.useState(0);
   const [noHelmetCount, setNoHelmetCount] = React.useState(0);
@@ -240,7 +244,7 @@ export default function Page(): React.JSX.Element {
        * to produce a proper frame.
        */
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 500);
+        globalThis.setTimeout(resolve, 500);
       });
 
       /*
@@ -261,11 +265,11 @@ export default function Page(): React.JSX.Element {
       );
 
       if (streamRef.current) {
-        streamRef.current
-          .getTracks()
-          .forEach((track) => {
-            track.stop();
-          });
+        const tracks = streamRef.current.getTracks();
+
+        for (const track of tracks) {
+          track.stop();
+        }
 
         streamRef.current = null;
       }
@@ -293,11 +297,11 @@ export default function Page(): React.JSX.Element {
     }
 
     if (streamRef.current !== null) {
-      streamRef.current
-        .getTracks()
-        .forEach((track) => {
-          track.stop();
-        });
+      const tracks = streamRef.current.getTracks();
+
+      for (const track of tracks) {
+        track.stop();
+      }
 
       streamRef.current = null;
     }
@@ -318,25 +322,25 @@ export default function Page(): React.JSX.Element {
   // ============================================================
 
   React.useEffect(() => {
-    return () => {
-      if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
-      }
+  const video = videoRef.current;
 
-      if (streamRef.current !== null) {
-        streamRef.current
-          .getTracks()
-          .forEach((track) => {
-            track.stop();
-          });
-      }
+  return () => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+    }
 
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.srcObject = null;
+    if (streamRef.current !== null) {
+      for (const track of streamRef.current.getTracks()) {
+        track.stop();
       }
-    };
-  }, []);
+    }
+
+    if (video) {
+      video.pause();
+      video.srcObject = null;
+    }
+  };
+}, []);
 
   // ============================================================
   // UI
@@ -396,7 +400,7 @@ export default function Page(): React.JSX.Element {
                     }}
                   />
 
-                  {!running && (
+                  {running ? null : (
                     <Stack
                       spacing={1}
                       alignItems="center"
@@ -449,7 +453,7 @@ export default function Page(): React.JSX.Element {
                     startIcon={
                       <Stop size={18} />
                     }
-                    disabled={!running}
+                    disabled={running ? false : true}
                     onClick={stopCamera}
                   >
                     Stop Camera
@@ -531,10 +535,10 @@ export default function Page(): React.JSX.Element {
                 <Typography>
                   Confidence:{' '}
                   <strong>
-                    {prediction?.confidence !==
+                    {prediction?.confidence ===
                     undefined
-                      ? `${prediction.confidence}%`
-                      : '--'}
+                      ? '--'
+                      : `${prediction.confidence}%`}
                   </strong>
                 </Typography>
 

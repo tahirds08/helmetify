@@ -47,8 +47,8 @@ export default function Page(): React.JSX.Element {
       const response = await uploadImage(file);
 
       setResult(response);
-    } catch (err) {
-      console.error('Image detection error:', err);
+    } catch (error_) {
+      console.error('Image detection error:', error_);
 
       setError('Detection failed. Please try again.');
     } finally {

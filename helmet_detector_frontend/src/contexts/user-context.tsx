@@ -66,8 +66,8 @@ export function UserProvider({
         error: null,
         isLoading: false,
       });
-    } catch (err) {
-      logger.error(err);
+    } catch (error) {
+      logger.error(error);
 
       setState({
         user: null,
@@ -78,8 +78,8 @@ export function UserProvider({
   }, []);
 
   React.useEffect(() => {
-    checkSession().catch((err) => {
-      logger.error(err);
+    checkSession().catch((error) => {
+      logger.error(error);
     });
   }, [checkSession]);
 
