@@ -76,7 +76,7 @@ export function SideNav(): React.JSX.Element {
 
       <Stack spacing={1} sx={{ p: 2.5 }}>
         <Box
-          component={RouterLink}
+          component="a"
           href={paths.home}
           sx={{
             textDecoration: 'none',
@@ -292,9 +292,7 @@ function NavItem({
       <Box
         {...(href
           ? {
-              component: external
-                ? 'a'
-                : RouterLink,
+              component: 'a',
               href,
               target: external
                 ? '_blank'

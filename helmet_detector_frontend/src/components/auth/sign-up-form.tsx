@@ -49,6 +49,6 @@ export function SignUpForm(): React.JSX.Element {
     <form noValidate onSubmit={handleSubmit(onSubmit)}><Stack spacing={2}>{fields.map(({ name, label, type = 'text', autoComplete }) => <Controller key={name} control={control} name={name} render={({ field }) => <FormControl error={Boolean(errors[name])}><InputLabel>{label}</InputLabel><OutlinedInput {...field} autoComplete={autoComplete} label={label} type={type} />{errors[name] ? <FormHelperText>{errors[name]?.message}</FormHelperText> : null}</FormControl>} />)}
       <Controller control={control} name="terms" render={({ field }) => <FormControl error={Boolean(errors.terms)}><FormControlLabel control={<Checkbox checked={field.value} onChange={(event) => field.onChange(event.target.checked)} />} label="I agree to the terms and privacy policy" />{errors.terms ? <FormHelperText>{errors.terms.message}</FormHelperText> : null}</FormControl>} />
       {errors.root ? <Alert severity="error">{errors.root.message}</Alert> : null}<Button disabled={isPending} size="large" type="submit" variant="contained">{isPending ? 'Creating account…' : 'Create account'}</Button></Stack></form>
-    <Typography color="text.secondary" variant="body2">Already have an account? <Link component={RouterLink} href={paths.auth.signIn} underline="hover" variant="subtitle2">Sign in</Link></Typography>
+    <Typography color="text.secondary" variant="body2">Already have an account? <Link href={paths.auth.signIn} underline="hover" variant="subtitle2">Sign in</Link></Typography>
   </Stack>;
 }

@@ -26,7 +26,7 @@ export function Layout({
 
       <Box sx={{ p: 3 }}>
         <Box
-          component={RouterLink}
+          component="a"
           href={paths.home}
           sx={{
             display: 'flex',

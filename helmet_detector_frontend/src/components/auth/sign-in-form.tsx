@@ -219,14 +219,7 @@ export function SignInForm(): React.JSX.Element {
         variant="body2"
       >
         New to Helmetify?{' '}
-        <Link
-          component={RouterLink}
-          href={paths.auth.signUp}
-          underline="hover"
-          variant="subtitle2"
-        >
-          Create an account
-        </Link>
+        <Link href={paths.auth.signUp} underline="hover" variant="subtitle2">Create an account</Link>
       </Typography>
     </Stack>
   );

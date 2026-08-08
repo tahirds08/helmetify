@@ -55,7 +55,7 @@ export function MobileNav({ open, onClose }: MobileNavProps): React.JSX.Element 
       open={open}
     >
       <Stack spacing={2} sx={{ p: 3 }}>
-        <Box component={RouterLink} href={paths.home} sx={{ display: 'inline-flex' }}>
+        <Box component="a" href={paths.home} sx={{ display: 'inline-flex' }}>
           <Logo color="light" height={36} width={145} />
         </Box>
         <Box
@@ -116,7 +116,7 @@ function NavItem({ disabled, external, href, icon, matcher, pathname, title }: N
       <Box
         {...(href
           ? {
-              component: external ? 'a' : RouterLink,
+              component: 'a',
               href,
               target: external ? '_blank' : undefined,
               rel: external ? 'noreferrer' : undefined,
