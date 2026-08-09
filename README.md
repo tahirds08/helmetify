@@ -184,7 +184,6 @@ Save Detection History
 
 ---
 
-## 📸 Screenshots
 
 ### Dashboard
 
