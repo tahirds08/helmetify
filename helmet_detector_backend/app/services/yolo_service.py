@@ -1,200 +1,323 @@
 from pathlib import Path
-from typing import Any, cast
-import gc
+from typing import cast
 
 import cv2
-from ultralytics import YOLO
+import numpy as np
+import onnxruntime as ort
 
 
-MODEL_PATH = Path("models") / "helmet.pt"
+MODEL_PATH = Path("models") / "helmet.onnx"
 
 RESULTS_FOLDER = Path("results")
 RESULTS_FOLDER.mkdir(exist_ok=True)
 
-# Load the model only once.
-model = YOLO(str(MODEL_PATH))
+INPUT_SIZE = 640
+CONF_THRESHOLD = 0.25
+IOU_THRESHOLD = 0.45
+
+CLASS_NAMES = {
+    0: "with_helmet",
+    1: "without_helmet",
+}
 
 
-# ============================================================
-# HELPERS
-# ============================================================
+session = ort.InferenceSession(
+    str(MODEL_PATH),
+    providers=["CPUExecutionProvider"],
+)
 
-def get_result(results: Any) -> Any:
-    """
-    Safely get the first YOLO result.
-
-    Using next(iter(results)) instead of results[0]
-    avoids Pylance type errors with Ultralytics.
-    """
-    return cast(Any, next(iter(results)))
+INPUT_NAME = session.get_inputs()[0].name
 
 
-def resize_image(image: Any, max_size: int = 1280) -> Any:
-    """
-    Resize very large images before YOLO inference.
-    This significantly reduces memory usage.
-    """
+def preprocess(image: np.ndarray):
+    original_height, original_width = image.shape[:2]
 
-    height, width = image.shape[:2]
-
-    largest_dimension = max(height, width)
-
-    if largest_dimension <= max_size:
-        return image
-
-    scale = max_size / largest_dimension
-
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-
-    return cv2.resize(
+    resized = cv2.resize(
         image,
-        (new_width, new_height),
-        interpolation=cv2.INTER_AREA,
+        (INPUT_SIZE, INPUT_SIZE),
+    )
+
+    resized = cv2.cvtColor(
+        resized,
+        cv2.COLOR_BGR2RGB,
+    )
+
+    resized = resized.transpose(2, 0, 1)
+
+    resized = resized.astype(np.float32) / 255.0
+
+    resized = np.expand_dims(
+        resized,
+        axis=0,
+    )
+
+    return (
+        resized,
+        original_width,
+        original_height,
     )
 
 
-def extract_detection_data(result: Any) -> tuple[
-    str,
-    float,
-    list[dict[str, Any]],
-]:
-    """
-    Extract detection information from a YOLO result.
-    """
+def calculate_iou(box1, box2):
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
 
-    highest_confidence = 0.0
-    final_result = "unknown"
+    intersection_width = max(0, x2 - x1)
+    intersection_height = max(0, y2 - y1)
 
-    detections: list[dict[str, Any]] = []
+    intersection = (
+        intersection_width
+        * intersection_height
+    )
 
-    if result.boxes is None:
-        return (
-            final_result,
-            highest_confidence,
-            detections,
-        )
+    area1 = (
+        max(0, box1[2] - box1[0])
+        * max(0, box1[3] - box1[1])
+    )
 
-    boxes = result.boxes
+    area2 = (
+        max(0, box2[2] - box2[0])
+        * max(0, box2[3] - box2[1])
+    )
 
-    for i in range(len(boxes.cls)):
+    union = area1 + area2 - intersection
 
-        confidence = (
-            float(boxes.conf[i].item()) * 100
-        )
+    if union <= 0:
+        return 0.0
+
+    return intersection / union
+
+
+def non_max_suppression(detections):
+    if not detections:
+        return []
+
+    detections = sorted(
+        detections,
+        key=lambda item: item["confidence"],
+        reverse=True,
+    )
+
+    selected = []
+
+    while detections:
+        current = detections.pop(0)
+        selected.append(current)
+
+        remaining = []
+
+        for detection in detections:
+            if (
+                detection["class_id"]
+                != current["class_id"]
+            ):
+                remaining.append(detection)
+                continue
+
+            iou = calculate_iou(
+                current["box"],
+                detection["box"],
+            )
+
+            if iou < IOU_THRESHOLD:
+                remaining.append(detection)
+
+        detections = remaining
+
+    return selected
+
+
+def run_inference(image: np.ndarray):
+    input_tensor, original_width, original_height = preprocess(
+        image
+    )
+
+    outputs = session.run(
+        None,
+        {INPUT_NAME: input_tensor},
+    )
+
+    predictions = cast(
+        np.ndarray,
+        outputs[0],
+    )
+
+    predictions = predictions[0].T
+
+    scale_x = original_width / INPUT_SIZE
+    scale_y = original_height / INPUT_SIZE
+
+    detections = []
+
+    for prediction in predictions:
+        x_center = float(prediction[0])
+        y_center = float(prediction[1])
+        width = float(prediction[2])
+        height = float(prediction[3])
+
+        class_scores = prediction[4:]
 
         class_id = int(
-            boxes.cls[i].item()
+            np.argmax(class_scores)
         )
 
-        class_name = result.names[class_id]
+        confidence = float(
+            class_scores[class_id]
+        )
+
+        if confidence < CONF_THRESHOLD:
+            continue
+
+        x1 = int(
+            (x_center - width / 2)
+            * scale_x
+        )
+
+        y1 = int(
+            (y_center - height / 2)
+            * scale_y
+        )
+
+        x2 = int(
+            (x_center + width / 2)
+            * scale_x
+        )
+
+        y2 = int(
+            (y_center + height / 2)
+            * scale_y
+        )
+
+        x1 = max(0, min(x1, original_width - 1))
+        y1 = max(0, min(y1, original_height - 1))
+        x2 = max(0, min(x2, original_width - 1))
+        y2 = max(0, min(y2, original_height - 1))
 
         detections.append(
             {
-                "class": class_name,
-                "confidence": round(
-                    confidence,
-                    2,
+                "box": [x1, y1, x2, y2],
+                "confidence": confidence,
+                "class_id": class_id,
+                "class": CLASS_NAMES.get(
+                    class_id,
+                    "unknown",
                 ),
             }
         )
 
-        if confidence > highest_confidence:
-
-            highest_confidence = confidence
-            final_result = class_name
-
-    return (
-        final_result,
-        highest_confidence,
-        detections,
-    )
+    return non_max_suppression(detections)
 
 
-# ============================================================
-# YOLO SERVICE
-# ============================================================
+def draw_detections(
+    image: np.ndarray,
+    detections,
+):
+    annotated = image.copy()
+
+    for detection in detections:
+        x1, y1, x2, y2 = detection["box"]
+
+        class_name = detection["class"]
+
+        confidence = (
+            detection["confidence"] * 100
+        )
+
+        cv2.rectangle(
+            annotated,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),
+            2,
+        )
+
+        label = (
+            f"{class_name} "
+            f"{confidence:.2f}%"
+        )
+
+        cv2.putText(
+            annotated,
+            label,
+            (x1, max(y1 - 10, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2,
+        )
+
+    return annotated
+
 
 class YOLOService:
 
-    # ========================================================
-    # IMAGE DETECTION
-    # ========================================================
-
     @staticmethod
     def predict(image_path: str):
-
         image = cv2.imread(image_path)
 
         if image is None:
-            raise Exception(
-                "Unable to read uploaded image."
+            raise ValueError(
+                "Unable to read image."
             )
 
-        # Resize large images before inference.
-        image = resize_image(
+        detections = run_inference(image)
+
+        annotated = draw_detections(
             image,
-            max_size=1280,
+            detections,
         )
 
-        try:
+        output_path = (
+            RESULTS_FOLDER
+            / Path(image_path).name
+        )
 
-            results = model.predict(
-                source=image,
-                save=False,
-                conf=0.25,
-                imgsz=640,
-                verbose=False,
-                device="cpu",
+        cv2.imwrite(
+            str(output_path),
+            annotated,
+        )
+
+        highest_confidence = 0.0
+        final_result = "unknown"
+
+        formatted_detections = []
+
+        for detection in detections:
+            confidence = (
+                detection["confidence"] * 100
             )
 
-            result = get_result(results)
-
-            output_path = (
-                RESULTS_FOLDER
-                / Path(image_path).name
+            formatted_detections.append(
+                {
+                    "class": detection["class"],
+                    "confidence": round(
+                        confidence,
+                        2,
+                    ),
+                }
             )
 
-            annotated = result.plot()
+            if confidence > highest_confidence:
+                highest_confidence = confidence
+                final_result = detection["class"]
 
-            cv2.imwrite(
-                str(output_path),
-                annotated,
-            )
-
-            (
-                final_result,
+        return {
+            "result": final_result,
+            "confidence": round(
                 highest_confidence,
-                detections,
-            ) = extract_detection_data(result)
-
-            return {
-                "result": final_result,
-                "confidence": round(
-                    highest_confidence,
-                    2,
-                ),
-                "original_image": image_path,
-                "annotated_image": str(
-                    output_path
-                ),
-                "detections": detections,
-            }
-
-        finally:
-
-            # Release temporary OpenCV/YOLO objects.
-            del image
-
-            gc.collect()
-
-    # ========================================================
-    # VIDEO DETECTION
-    # ========================================================
+                2,
+            ),
+            "original_image": image_path,
+            "annotated_image": str(
+                output_path
+            ),
+            "detections": formatted_detections,
+        }
 
     @staticmethod
     def predict_video(video_path: str):
-
         output_path = (
             RESULTS_FOLDER
             / Path(video_path).name
@@ -203,47 +326,26 @@ class YOLOService:
         cap = cv2.VideoCapture(video_path)
 
         if not cap.isOpened():
-            raise Exception(
+            raise ValueError(
                 "Unable to open video."
             )
 
         width = int(
-            cap.get(
-                cv2.CAP_PROP_FRAME_WIDTH
-            )
+            cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         )
 
         height = int(
-            cap.get(
-                cv2.CAP_PROP_FRAME_HEIGHT
-            )
+            cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         )
 
-        fps = cap.get(
-            cv2.CAP_PROP_FPS
-        )
+        fps = cap.get(cv2.CAP_PROP_FPS)
 
         if fps <= 0:
             fps = 25.0
 
-        # Limit output resolution.
-        max_video_size = 1280
-
-        if max(width, height) > max_video_size:
-
-            scale = (
-                max_video_size
-                / max(width, height)
-            )
-
-            width = int(width * scale)
-            height = int(height * scale)
-
         writer = cv2.VideoWriter(
             str(output_path),
-            cv2.VideoWriter.fourcc(
-                *"mp4v"
-            ),
+            cv2.VideoWriter.fourcc(*"mp4v"),
             fps,
             (width, height),
         )
@@ -251,105 +353,37 @@ class YOLOService:
         highest_confidence = 0.0
         final_result = "unknown"
 
-        frame_count = 0
-
         try:
-
             while True:
-
                 success, frame = cap.read()
 
                 if not success:
                     break
 
-                frame_count += 1
+                detections = run_inference(frame)
 
-                # Resize frame if necessary.
-                frame = resize_image(
+                annotated_frame = draw_detections(
                     frame,
-                    max_size=1280,
+                    detections,
                 )
-
-                # Keep frame dimensions consistent
-                # with the video writer.
-                frame = cv2.resize(
-                    frame,
-                    (width, height),
-                    interpolation=cv2.INTER_AREA,
-                )
-
-                # Process every frame.
-                results = model.predict(
-                    source=frame,
-                    save=False,
-                    conf=0.25,
-                    imgsz=640,
-                    verbose=False,
-                    device="cpu",
-                )
-
-                result = get_result(results)
-
-                annotated_frame = result.plot()
 
                 writer.write(
                     annotated_frame
                 )
 
-                if result.boxes is not None:
+                for detection in detections:
+                    confidence = (
+                        detection["confidence"]
+                        * 100
+                    )
 
-                    boxes = result.boxes
-
-                    for i in range(
-                        len(boxes.cls)
-                    ):
-
-                        confidence = (
-                            float(
-                                boxes.conf[
-                                    i
-                                ].item()
-                            )
-                            * 100
-                        )
-
-                        if (
-                            confidence
-                            > highest_confidence
-                        ):
-
-                            highest_confidence = (
-                                confidence
-                            )
-
-                            class_id = int(
-                                boxes.cls[
-                                    i
-                                ].item()
-                            )
-
-                            final_result = (
-                                result.names[
-                                    class_id
-                                ]
-                            )
-
-                # Explicitly release frame data.
-                del frame
-                del results
-                del result
-                del annotated_frame
-
-                # Periodic garbage collection.
-                if frame_count % 30 == 0:
-                    gc.collect()
+                    if confidence > highest_confidence:
+                        highest_confidence = confidence
+                        final_result = detection["class"]
 
         finally:
-
             cap.release()
             writer.release()
-
-            gc.collect()
 
         return {
             "result": final_result,
@@ -363,143 +397,80 @@ class YOLOService:
             ),
         }
 
-    # ========================================================
-    # LIVE CAMERA FRAME DETECTION
-    # ========================================================
-
     @staticmethod
     def predict_camera_frame(
         image_path: str,
     ):
-
         image = cv2.imread(image_path)
 
         if image is None:
-            raise Exception(
+            raise ValueError(
                 "Unable to read camera frame."
             )
 
-        image = resize_image(
+        detections = run_inference(image)
+
+        annotated = draw_detections(
             image,
-            max_size=1280,
+            detections,
         )
 
-        try:
+        output_path = (
+            RESULTS_FOLDER
+            / Path(image_path).name
+        )
 
-            results = model.predict(
-                source=image,
-                save=False,
-                conf=0.25,
-                imgsz=640,
-                verbose=False,
-                device="cpu",
+        cv2.imwrite(
+            str(output_path),
+            annotated,
+        )
+
+        highest_confidence = 0.0
+        final_result = "unknown"
+
+        helmet_count = 0
+        no_helmet_count = 0
+
+        formatted_detections = []
+
+        for detection in detections:
+            confidence = (
+                detection["confidence"] * 100
             )
 
-            result = get_result(results)
+            class_name = detection["class"]
 
-            output_path = (
-                RESULTS_FOLDER
-                / Path(image_path).name
+            formatted_detections.append(
+                {
+                    "class": class_name,
+                    "confidence": round(
+                        confidence,
+                        2,
+                    ),
+                }
             )
 
-            annotated = result.plot()
+            if class_name == "with_helmet":
+                helmet_count += 1
 
-            cv2.imwrite(
-                str(output_path),
-                annotated,
-            )
+            elif class_name == "without_helmet":
+                no_helmet_count += 1
 
-            highest_confidence = 0.0
-            final_result = "unknown"
+            if confidence > highest_confidence:
+                highest_confidence = confidence
+                final_result = class_name
 
-            detections: list[
-                dict[str, Any]
-            ] = []
-
-            helmet_count = 0
-            no_helmet_count = 0
-
-            if result.boxes is not None:
-
-                boxes = result.boxes
-
-                for i in range(
-                    len(boxes.cls)
-                ):
-
-                    confidence = (
-                        float(
-                            boxes.conf[
-                                i
-                            ].item()
-                        )
-                        * 100
-                    )
-
-                    class_id = int(
-                        boxes.cls[
-                            i
-                        ].item()
-                    )
-
-                    class_name = (
-                        result.names[
-                            class_id
-                        ]
-                    )
-
-                    detections.append(
-                        {
-                            "class": class_name,
-                            "confidence": round(
-                                confidence,
-                                2,
-                            ),
-                        }
-                    )
-
-                    if (
-                        class_name
-                        == "with_helmet"
-                    ):
-                        helmet_count += 1
-
-                    elif (
-                        class_name
-                        == "without_helmet"
-                    ):
-                        no_helmet_count += 1
-
-                    if (
-                        confidence
-                        > highest_confidence
-                    ):
-
-                        highest_confidence = (
-                            confidence
-                        )
-
-                        final_result = (
-                            class_name
-                        )
-
-            return {
-                "result": final_result,
-                "confidence": round(
-                    highest_confidence,
-                    2,
-                ),
-                "helmet_count": helmet_count,
-                "no_helmet_count": no_helmet_count,
-                "detections": detections,
-                "original_image": image_path,
-                "annotated_image": str(
-                    output_path
-                ),
-            }
-
-        finally:
-
-            del image
-
-            gc.collect()
+        return {
+            "result": final_result,
+            "confidence": round(
+                highest_confidence,
+                2,
+            ),
+            "helmet_count": helmet_count,
+            "no_helmet_count": no_helmet_count,
+            "detections": formatted_detections,
+            "original_image": image_path,
+            "annotated_image": str(
+                output_path
+            ),
+        }
