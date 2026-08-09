@@ -1,19 +1,27 @@
 import type { DetectionHistory } from "@/types/api";
-import { authClient } from '@/lib/auth/client';
+import { authClient } from "@/lib/auth/client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000';
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 function authHeaders(): HeadersInit {
   const token = authClient.getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+
+  return token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
 }
+
+// ============================================================
+// IMAGE DETECTION
+// ============================================================
 
 export async function uploadImage(file: File) {
   const formData = new FormData();
 
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/predict`, {
+  const response = await fetch(`${API_BASE_URL}/predict/`, {
     method: "POST",
     body: formData,
     headers: authHeaders(),
@@ -25,6 +33,10 @@ export async function uploadImage(file: File) {
 
   return response.json();
 }
+
+// ============================================================
+// VIDEO DETECTION
+// ============================================================
 
 export async function uploadVideo(file: File) {
   const formData = new FormData();
@@ -44,6 +56,10 @@ export async function uploadVideo(file: File) {
   return response.json();
 }
 
+// ============================================================
+// LIVE CAMERA
+// ============================================================
+
 export async function uploadCameraFrame(file: File) {
   const formData = new FormData();
 
@@ -62,8 +78,17 @@ export async function uploadCameraFrame(file: File) {
   return response.json();
 }
 
+// ============================================================
+// HISTORY
+// ============================================================
+
 export async function getHistory(): Promise<DetectionHistory[]> {
-  const response = await fetch(`${API_BASE_URL}/predict/history`, { headers: authHeaders() });
+  const response = await fetch(
+    `${API_BASE_URL}/predict/history`,
+    {
+      headers: authHeaders(),
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Unable to load history");
@@ -72,11 +97,18 @@ export async function getHistory(): Promise<DetectionHistory[]> {
   return response.json();
 }
 
+// ============================================================
+// CLEAR HISTORY
+// ============================================================
+
 export async function clearHistory() {
-  const response = await fetch(`${API_BASE_URL}/predict/history`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/predict/history`,
+    {
+      method: "DELETE",
+      headers: authHeaders(),
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Unable to clear history");
@@ -85,8 +117,17 @@ export async function clearHistory() {
   return response.json();
 }
 
+// ============================================================
+// DASHBOARD
+// ============================================================
+
 export async function getDashboardStats() {
-  const response = await fetch(`${API_BASE_URL}/predict/dashboard`, { headers: authHeaders() });
+  const response = await fetch(
+    `${API_BASE_URL}/predict/dashboard`,
+    {
+      headers: authHeaders(),
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Unable to load dashboard statistics");
